@@ -1,0 +1,9 @@
+{
+  "name": "model-images",
+  "private": true,
+  "type": "module",
+  "description": "Sanitised, permanently-hosted model images synced from the Airtable Models base",
+  "dependencies": {
+    "sharp": "^0.33.4"
+  }
+}
