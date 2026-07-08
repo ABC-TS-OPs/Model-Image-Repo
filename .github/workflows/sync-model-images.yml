@@ -1,9 +1,9 @@
 name: Sync model images from Airtable
 
 # Two ways this workflow starts:
-#  1. repository_dispatch — the Airtable automations POST to GitHub's API
+#  1. repository_dispatch - the Airtable automations POST to GitHub's API
 #     (the "watcher" fires after an image changes; the "backlog" fires on a schedule)
-#  2. workflow_dispatch — a manual "Run workflow" button in the GitHub Actions tab
+#  2. workflow_dispatch - a manual "Run workflow" button in the GitHub Actions tab
 on:
   repository_dispatch:
     types: [airtable-image-sync]
@@ -28,7 +28,7 @@ concurrency:
 permissions:
   contents: write
 
-# ======================= CONFIG — EDIT THESE =======================
+# ======================= CONFIG - EDIT THESE =======================
 env:
   BASE_ID: appejjH7UYQ01JSki      # <-- Models base ID (starts with app)
   TABLE_ID: tbllo1L2GB6Jlm8mN     # <-- Models table ID (starts with tbl)
@@ -36,7 +36,9 @@ env:
   FLD_NAME: fldBIVuL8qhhGwdau     # <-- model name field (used for the filename slug)
   FLD_URL: fldCje8TL4dwVStAx      # <-- URL field the permanent link is written to
   FLD_STATUS: fldaCwck62QT6vGgg   # <-- single select: Pending / Published / Rejected
-  FLD_NOTE: fldJceyNYs1kO3acS     # <-- optional: long text field for sync notes, or leave ""
+  FLD_NOTE: fldJceyNYs1kO3acS     # <-- long text field for sync notes
+  FLD_THUMB: fldFiT2rZg9gAOx1w    # <-- URL field for the 80x80 thumbnail link
+  THUMB_EDGE: "80"                # <-- thumbnail square size, px
   BRANCH: main                    # <-- default branch of this repo
   MAX_EDGE: "800"                 # <-- longest edge of processed images, px
   JPEG_QUALITY: "100"              # <-- JPEG output quality (1-100)

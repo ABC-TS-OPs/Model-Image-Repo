@@ -48,7 +48,11 @@ const BRANCH       = process.env.BRANCH || "main";
 const MAX_EDGE     = parseInt(process.env.MAX_EDGE || "600", 10);
 const JPEG_QUALITY = parseInt(process.env.JPEG_QUALITY || "82", 10);
 
+const FLD_THUMB    = process.env.FLD_THUMB || "";        // optional: thumb URL field
+const THUMB_EDGE   = parseInt(process.env.THUMB_EDGE || "80", 10);
+
 const IMAGES_DIR = "images";
+const THUMBS_DIR = "images/thumbs";
 const RESULTS_FILE = "sync-results.json";
 
 // Formats sharp can read that we'll accept as INPUT.
@@ -80,8 +84,8 @@ async function listRecords() {
       returnFieldsByFieldId: "true",
       pageSize: "100",
     });
-    for (const fld of [FLD_ATTACH, FLD_NAME, FLD_URL, FLD_STATUS]) {
-      params.append("fields[]", fld);
+    for (const fld of [FLD_ATTACH, FLD_NAME, FLD_URL, FLD_STATUS, FLD_THUMB]) {
+      if (fld) params.append("fields[]", fld);
     }
     if (offset) params.set("offset", offset);
 
@@ -102,6 +106,7 @@ async function listRecords() {
 /* -------------------- main -------------------- */
 
 fs.mkdirSync(IMAGES_DIR, { recursive: true });
+fs.mkdirSync(THUMBS_DIR, { recursive: true });
 
 const all = await listRecords();
 console.log(`Fetched ${all.length} records from Airtable (mode: ${MODE})`);
@@ -111,7 +116,10 @@ const needsSync = all.filter((rec) => {
   if (!Array.isArray(atts) || atts.length === 0) return false;
   const status = rec.fields[FLD_STATUS] || "";
   const url = rec.fields[FLD_URL] || "";
-  if (MODE === "backlog") return status !== "Published" || !url;
+  if (MODE === "backlog") {
+    const thumbMissing = FLD_THUMB ? !(rec.fields[FLD_THUMB]) : false;
+    return status !== "Published" || !url || thumbMissing;
+  }
   return status === "Pending";
 });
 console.log(`${needsSync.length} record(s) need processing`);
@@ -156,15 +164,57 @@ for (const rec of needsSync) {
           .jpeg({ quality: JPEG_QUALITY, mozjpeg: true })
           .toBuffer();
 
-    // 4. Markdown-safe filename, unique + deterministic per record
-    const filename = `${slugify(rec.fields[FLD_NAME] ?? att.filename)}-${rec.id}.${ext}`;
+    // 4. Thumbnail: fit inside THUMB_EDGE, then pad with transparent alpha
+    //    to an exact THUMB_EDGE x THUMB_EDGE square, image centred.
+    //    Always PNG (the transparent padding requires an alpha channel).
+    //    Emails must use thumbs at display size — Outlook ignores CSS
+    //    sizing and the Outlook block strips HTML width/height attributes,
+    //    so intrinsic pixel size is the only sizing control that survives.
+    const inner = await sharp(input)
+      .rotate()
+      .resize({
+        width: THUMB_EDGE,
+        height: THUMB_EDGE,
+        fit: "inside",
+        withoutEnlargement: true,
+      })
+      .png()
+      .toBuffer();
+    const innerMeta = await sharp(inner).metadata();
+    const padLeft   = Math.floor((THUMB_EDGE - innerMeta.width) / 2);
+    const padRight  = THUMB_EDGE - innerMeta.width - padLeft;
+    const padTop    = Math.floor((THUMB_EDGE - innerMeta.height) / 2);
+    const padBottom = THUMB_EDGE - innerMeta.height - padTop;
+    const thumbBuf = await sharp(inner)
+      .extend({
+        top: padTop,
+        bottom: padBottom,
+        left: padLeft,
+        right: padRight,
+        background: { r: 0, g: 0, b: 0, alpha: 0 },
+      })
+      .png({ compressionLevel: 9 })
+      .toBuffer();
+
+    // 5. Markdown-safe filenames, unique + deterministic per record
+    const slug = slugify(rec.fields[FLD_NAME] ?? att.filename);
+    const filename = `${slug}-${rec.id}.${ext}`;
+    const thumbName = `${slug}-${rec.id}.png`;
     const filePath = path.join(IMAGES_DIR, filename);
+    const thumbPath = path.join(THUMBS_DIR, thumbName);
 
     // Remove stale variants for this record (renamed model, or png<->jpg switch)
     for (const existing of fs.readdirSync(IMAGES_DIR)) {
-      if (existing.includes(rec.id) && existing !== filename) {
-        fs.unlinkSync(path.join(IMAGES_DIR, existing));
+      const full = path.join(IMAGES_DIR, existing);
+      if (fs.statSync(full).isFile() && existing.includes(rec.id) && existing !== filename) {
+        fs.unlinkSync(full);
         console.log(`  removed stale file ${existing}`);
+      }
+    }
+    for (const existing of fs.readdirSync(THUMBS_DIR)) {
+      if (existing.includes(rec.id) && existing !== thumbName) {
+        fs.unlinkSync(path.join(THUMBS_DIR, existing));
+        console.log(`  removed stale thumb ${existing}`);
       }
     }
 
@@ -176,11 +226,20 @@ for (const rec of needsSync) {
     } else {
       console.log(`  ${filePath} unchanged`);
     }
+    const prevThumb = fs.existsSync(thumbPath) ? fs.readFileSync(thumbPath) : null;
+    if (!prevThumb || !prevThumb.equals(thumbBuf)) {
+      fs.writeFileSync(thumbPath, thumbBuf);
+      console.log(`  wrote ${thumbPath} (${(thumbBuf.length / 1024).toFixed(0)} KB)`);
+    } else {
+      console.log(`  ${thumbPath} unchanged`);
+    }
 
-    // 5. Permanent public URL (raw.githubusercontent serves the latest on BRANCH)
+    // 6. Permanent public URLs (raw.githubusercontent serves the latest on BRANCH)
     const url = `https://raw.githubusercontent.com/${REPO}/${BRANCH}/${IMAGES_DIR}/${filename}`;
+    const thumbUrl = `https://raw.githubusercontent.com/${REPO}/${BRANCH}/${THUMBS_DIR}/${thumbName}`;
 
     const fields = { [FLD_URL]: url, [FLD_STATUS]: "Published" };
+    if (FLD_THUMB) fields[FLD_THUMB] = thumbUrl;
     if (FLD_NOTE) {
       fields[FLD_NOTE] =
         `Published ${new Date().toISOString()} — ` +
