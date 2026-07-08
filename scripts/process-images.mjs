@@ -8,8 +8,9 @@
  *      strip metadata, convert to PNG (if transparent) or JPEG (otherwise)
  *   4. Writes it to images/ with a Markdown-safe filename:
  *        {model-name-slug}-{recordId}.{png|jpg}
- *      (lowercase letters, digits, hyphens only in the slug — no underscores
+ *      (lowercase letters, digits, hyphens only in the slug - no underscores
  *       or parentheses, which the Outlook block's Markdown pass mangles)
+ *      Writes to both full and thumb folders with appropriate version of image for use
  *   5. Records the outcome in sync-results.json for the write-back step
  *
  * Which records count as "needing syncing":
@@ -17,7 +18,7 @@
  *   MODE=backlog -> has an attachment and isn't yet "Published" (or URL empty)
  *
  * Rejected records (wrong format, too large, download failed) are marked
- * "Rejected" with a reason — never silently skipped.
+ * "Rejected" with a reason - never silently skipped.
  ************************/
 
 import sharp from "sharp";
@@ -51,18 +52,19 @@ const JPEG_QUALITY = parseInt(process.env.JPEG_QUALITY || "82", 10);
 const FLD_THUMB    = process.env.FLD_THUMB || "";        // optional: thumb URL field
 const THUMB_EDGE   = parseInt(process.env.THUMB_EDGE || "80", 10);
 
-const IMAGES_DIR = "images";
-const THUMBS_DIR = "images/thumbs";
+const IMAGES_ROOT = "images";        // legacy flat location (pre-restructure)
+const FULL_DIR    = "images/full";   // full-size processed images
+const THUMBS_DIR  = "images/thumbs"; // 80x80 alpha-padded thumbnails
 const RESULTS_FILE = "sync-results.json";
 
 // Formats sharp can read that we'll accept as INPUT.
-// Output is always png or jpg — the only formats Outlook renders reliably.
+// Output is always png or jpg - the only formats Outlook renders reliably.
 const ACCEPTED_INPUT = new Set(["jpeg", "png", "webp", "gif", "tiff"]);
 const MAX_SOURCE_BYTES = 25 * 1024 * 1024; // reject absurdly large sources
 
 /* -------------------- helpers -------------------- */
 
-/** Lowercase letters, digits, hyphens only — safe through the Markdown pass. */
+/** Lowercase letters, digits, hyphens only - safe through the Markdown pass. */
 function slugify(s) {
   const slug = (s ?? "")
     .toString()
@@ -105,7 +107,7 @@ async function listRecords() {
 
 /* -------------------- main -------------------- */
 
-fs.mkdirSync(IMAGES_DIR, { recursive: true });
+fs.mkdirSync(FULL_DIR, { recursive: true });
 fs.mkdirSync(THUMBS_DIR, { recursive: true });
 
 const all = await listRecords();
@@ -117,8 +119,12 @@ const needsSync = all.filter((rec) => {
   const status = rec.fields[FLD_STATUS] || "";
   const url = rec.fields[FLD_URL] || "";
   if (MODE === "backlog") {
-    const thumbMissing = FLD_THUMB ? !(rec.fields[FLD_THUMB]) : false;
-    return status !== "Published" || !url || thumbMissing;
+    const fullPrefix  = `https://raw.githubusercontent.com/${REPO}/${BRANCH}/${FULL_DIR}/`;
+    const thumbPrefix = `https://raw.githubusercontent.com/${REPO}/${BRANCH}/${THUMBS_DIR}/`;
+    const thumbUrl = FLD_THUMB ? (rec.fields[FLD_THUMB] || "") : "";
+    const urlStale   = !url.startsWith(fullPrefix);
+    const thumbStale = FLD_THUMB ? !thumbUrl.startsWith(thumbPrefix) : false;
+    return status !== "Published" || urlStale || thumbStale;
   }
   return status === "Pending";
 });
@@ -167,7 +173,7 @@ for (const rec of needsSync) {
     // 4. Thumbnail: fit inside THUMB_EDGE, then pad with transparent alpha
     //    to an exact THUMB_EDGE x THUMB_EDGE square, image centred.
     //    Always PNG (the transparent padding requires an alpha channel).
-    //    Emails must use thumbs at display size — Outlook ignores CSS
+    //    Emails must use thumbs at display size - Outlook ignores CSS
     //    sizing and the Outlook block strips HTML width/height attributes,
     //    so intrinsic pixel size is the only sizing control that survives.
     const inner = await sharp(input)
@@ -200,14 +206,22 @@ for (const rec of needsSync) {
     const slug = slugify(rec.fields[FLD_NAME] ?? att.filename);
     const filename = `${slug}-${rec.id}.${ext}`;
     const thumbName = `${slug}-${rec.id}.png`;
-    const filePath = path.join(IMAGES_DIR, filename);
+    const filePath = path.join(FULL_DIR, filename);
     const thumbPath = path.join(THUMBS_DIR, thumbName);
 
-    // Remove stale variants for this record (renamed model, or png<->jpg switch)
-    for (const existing of fs.readdirSync(IMAGES_DIR)) {
-      const full = path.join(IMAGES_DIR, existing);
-      if (fs.statSync(full).isFile() && existing.includes(rec.id) && existing !== filename) {
-        fs.unlinkSync(full);
+    // Remove stale variants for this record: renamed model, png<->jpg switch,
+    // and legacy files still sitting flat in images/ from before the
+    // full/ restructure (auto-migration).
+    for (const existing of fs.readdirSync(IMAGES_ROOT)) {
+      const p = path.join(IMAGES_ROOT, existing);
+      if (fs.statSync(p).isFile() && existing.includes(rec.id)) {
+        fs.unlinkSync(p);
+        console.log(`  removed legacy flat file ${existing}`);
+      }
+    }
+    for (const existing of fs.readdirSync(FULL_DIR)) {
+      if (existing.includes(rec.id) && existing !== filename) {
+        fs.unlinkSync(path.join(FULL_DIR, existing));
         console.log(`  removed stale file ${existing}`);
       }
     }
@@ -235,14 +249,14 @@ for (const rec of needsSync) {
     }
 
     // 6. Permanent public URLs (raw.githubusercontent serves the latest on BRANCH)
-    const url = `https://raw.githubusercontent.com/${REPO}/${BRANCH}/${IMAGES_DIR}/${filename}`;
+    const url = `https://raw.githubusercontent.com/${REPO}/${BRANCH}/${FULL_DIR}/${filename}`;
     const thumbUrl = `https://raw.githubusercontent.com/${REPO}/${BRANCH}/${THUMBS_DIR}/${thumbName}`;
 
     const fields = { [FLD_URL]: url, [FLD_STATUS]: "Published" };
     if (FLD_THUMB) fields[FLD_THUMB] = thumbUrl;
     if (FLD_NOTE) {
       fields[FLD_NOTE] =
-        `Published ${new Date().toISOString()} — ` +
+        `Published ${new Date().toISOString()} - ` +
         `${meta.width}x${meta.height} ${meta.format} -> ${ext}, ` +
         `${(outBuf.length / 1024).toFixed(0)} KB`;
     }
@@ -251,7 +265,7 @@ for (const rec of needsSync) {
   } catch (e) {
     const reason = e && e.message ? e.message : String(e);
     const fields = { [FLD_STATUS]: "Rejected" };
-    if (FLD_NOTE) fields[FLD_NOTE] = `Rejected ${new Date().toISOString()} — ${reason}`;
+    if (FLD_NOTE) fields[FLD_NOTE] = `Rejected ${new Date().toISOString()} - ${reason}`;
     results.push({ id: rec.id, fields });
     console.log(`REJECTED  ${label}: ${reason}`);
   }
