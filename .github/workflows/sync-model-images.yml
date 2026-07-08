@@ -30,16 +30,16 @@ permissions:
 
 # ======================= CONFIG — EDIT THESE =======================
 env:
-  BASE_ID: appXXXXXXXXXXXXXX      # <-- Models base ID (starts with app)
-  TABLE_ID: tblXXXXXXXXXXXXXX     # <-- Models table ID (starts with tbl)
-  FLD_ATTACH: fldXXXXXXXXXXXXXX   # <-- attachment field holding the source image
-  FLD_NAME: fldXXXXXXXXXXXXXX     # <-- model name field (used for the filename slug)
-  FLD_URL: fldXXXXXXXXXXXXXX      # <-- URL field the permanent link is written to
-  FLD_STATUS: fldXXXXXXXXXXXXXX   # <-- single select: Pending / Published / Rejected
-  FLD_NOTE: ""                    # <-- optional: long text field for sync notes, or leave ""
+  BASE_ID: appejjH7UYQ01JSki      # <-- Models base ID (starts with app)
+  TABLE_ID: tbllo1L2GB6Jlm8mN     # <-- Models table ID (starts with tbl)
+  FLD_ATTACH: fldYyOhu2nRYOYe0O   # <-- attachment field holding the source image
+  FLD_NAME: fldBIVuL8qhhGwdau     # <-- model name field (used for the filename slug)
+  FLD_URL: fldCje8TL4dwVStAx      # <-- URL field the permanent link is written to
+  FLD_STATUS: fldaCwck62QT6vGgg   # <-- single select: Pending / Published / Rejected
+  FLD_NOTE: fldJceyNYs1kO3acS     # <-- optional: long text field for sync notes, or leave ""
   BRANCH: main                    # <-- default branch of this repo
-  MAX_EDGE: "600"                 # <-- longest edge of processed images, px
-  JPEG_QUALITY: "82"              # <-- JPEG output quality (1-100)
+  MAX_EDGE: "800"                 # <-- longest edge of processed images, px
+  JPEG_QUALITY: "100"              # <-- JPEG output quality (1-100)
 # ===================================================================
 
 jobs:
