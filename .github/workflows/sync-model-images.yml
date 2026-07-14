@@ -74,7 +74,17 @@ jobs:
             echo "No image changes to commit."
           else
             git commit -m "Sync model images from Airtable"
-            git push
+            for attempt in 1 2 3; do
+              if git push; then
+                echo "Pushed on attempt ${attempt}."
+                exit 0
+              fi
+              echo "Push rejected (attempt ${attempt}) — remote moved ahead; rebasing and retrying…"
+              git pull --rebase origin "${BRANCH}"
+              sleep 2
+            done
+            echo "Push still failing after 3 attempts." >&2
+            exit 1
           fi
 
       - name: Write results back to Airtable
