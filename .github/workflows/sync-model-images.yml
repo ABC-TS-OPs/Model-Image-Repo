@@ -41,7 +41,7 @@ env:
   THUMB_EDGE: "80"                # <-- thumbnail square size, px
   BRANCH: main                    # <-- default branch of this repo
   MAX_EDGE: "800"                 # <-- longest edge of processed images, px
-  JPEG_QUALITY: "100"              # <-- JPEG output quality (1-100)
+  JPEG_QUALITY: "90"              # <-- JPEG output quality (1-100)
 # ===================================================================
 
 jobs:
